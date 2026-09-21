@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HR Analytics Dashboard</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #f8f9fa; font-family: system-ui, -apple-system, sans-serif; }
+        .card-kpi { border-left: 5px solid #0d6efd; }
+    </style>
+</head>
+<body>
+    <div class="container py-4">
+        <h2 class="mb-4 text-primary">📊 HR Analytics & Dashboard</h2>
+
+        <!-- ส่วนอัปโหลดไฟล์ -->
+        <div class="card mb-4 shadow-sm">
+            <div class="card-body">
+                <h5 class="card-title">อัปโหลดไฟล์ข้อมูลพนักงาน (.txt / .csv)</h5>
+                <form id="uploadForm" class="row g-3 mt-1">
+                    <div class="col-auto">
+                        <input type="file" id="fileInput" class="form-control" accept=".csv, .txt, .tsv" required>
+                    </div>
+                    <div class="col-auto">
+                        <button type="submit" class="btn btn-primary">อัปโหลดและประมวลผล</button>
+                    </div>
+                </form>
+                <div id="uploadAlert" class="mt-3"></div>
+            </div>
+        </div>
+
+        <!-- ส่วนตัวกรอง (Filters) -->
+        <div class="card mb-4 shadow-sm" id="filterSection" style="display: none;">
+            <div class="card-body">
+                <h5 class="card-title">🔍 ตัวกรองข้อมูล (Filters)</h5>
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">แผนก (Department)</label>
+                        <select id="filterDept" class="form-select" onchange="loadDashboardData()">
+                            <option value="All">ทั้งหมด</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">สถานะการทำงาน (Status)</label>
+                        <select id="filterStatus" class="form-select" onchange="loadDashboardData()">
+                            <option value="All">ทั้งหมด</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">คะแนนประเมิน (Performance)</label>
+                        <select id="filterPerf" class="form-select" onchange="loadDashboardData()">
+                            <option value="All">ทั้งหมด</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ส่วนแสดง Dashboard -->
+        <div id="dashboardContent" style="display: none;">
+            <!-- KPI Cards -->
+            <div class="row mb-4">
+                <div class="col-md-4">
+                    <div class="card card-kpi shadow-sm p-3">
+                        <small class="text-muted">จำนวนพนักงานทั้งหมด</small>
+                        <h3 id="kpiTotal" class="text-primary mb-0">0</h3>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card card-kpi shadow-sm p-3" style="border-left-color: #198754;">
+                        <small class="text-muted">อัตราค่าจ้างเฉลี่ย ($/hr)</small>
+                        <h3 id="kpiPayRate" class="text-success mb-0">$0.00</h3>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card card-kpi shadow-sm p-3" style="border-left-color: #ffc107;">
+                        <small class="text-muted">พนักงานสถานะ Active</small>
+                        <h3 id="kpiActive" class="text-warning mb-0">0</h3>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts -->
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="card shadow-sm p-3">
+                        <h6>จำนวนพนักงานแยกตามแผนก</h6>
+                        <canvas id="deptChart"></canvas>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card shadow-sm p-3">
+                        <h6>ระดับผลการปฏิบัติงาน (Performance Score)</h6>
+                        <canvas id="perfChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Table -->
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h5>รายการข้อมูลพนักงาน (แสดงผลสูงสุด 100 รายการ)</h5>
+                    <div class="table-responsive">
+                        <table class="table table-hover table-striped mt-3" id="empTable">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Emp ID</th>
+                                    <th>ชื่อ - นามสกุล</th>
+                                    <th>ตำแหน่ง</th>
+                                    <th>แผนก</th>
+                                    <th>สถานะ</th>
+                                    <th>Pay Rate</th>
+                                    <th>Performance</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let deptChartObj = null;
+        let perfChartObj = null;
+
+        // ฟังก์ชันรับการอัปโหลดไฟล์
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const fileInput = document.getElementById('fileInput');
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            const alertDiv = document.getElementById('uploadAlert');
+            alertDiv.innerHTML = '<div class="alert alert-info">กำลังประมวลผลไฟล์...</div>';
+
+            try {
+                const res = await fetch('/api/upload', { method: 'POST', body: formData });
+                const data = await res.json();
+
+                if (res.ok) {
+                    alertDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+                    
+                    // เพิ่มตัวเลือกเข้า Dropdown
+                    populateDropdown('filterDept', data.filters.departments);
+                    populateDropdown('filterStatus', data.filters.statuses);
+                    populateDropdown('filterPerf', data.filters.perf_scores);
+
+                    document.getElementById('filterSection').style.display = 'block';
+                    document.getElementById('dashboardContent').style.display = 'block';
+                    
+                    loadDashboardData();
+                } else {
+                    alertDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+                }
+            } catch (err) {
+                alertDiv.innerHTML = `<div class="alert alert-danger">เกิดข้อผิดพลาดในการเชื่อมต่อกับ Server</div>`;
+            }
+        });
+
+        function populateDropdown(elemId, list) {
+            const select = document.getElementById(elemId);
+            select.innerHTML = '<option value="All">ทั้งหมด</option>';
+            list.forEach(item => {
+                select.innerHTML += `<option value="${item}">${item}</option>`;
+            });
+        }
+
+        // โหลดข้อมูล Dashboard
+        async function loadDashboardData() {
+            const dept = document.getElementById('filterDept').value;
+            const status = document.getElementById('filterStatus').value;
+            const perf = document.getElementById('filterPerf').value;
+
+            const url = `/api/data?department=${encodeURIComponent(dept)}&status=${encodeURIComponent(status)}&performance=${encodeURIComponent(perf)}`;
+            const res = await fetch(url);
+            const data = await res.json();
+
+            // อัปเดต KPI
+            document.getElementById('kpiTotal').innerText = data.kpi.total;
+            document.getElementById('kpiPayRate').innerText = `$${data.kpi.avg_pay}`;
+            document.getElementById('kpiActive').innerText = data.kpi.active;
+
+            // วาดกราฟ
+            renderChart('deptChart', 'bar', data.charts.department, 'จำนวนพนักงาน', deptChartObj, (chart) => deptChartObj = chart);
+            renderChart('perfChart', 'pie', data.charts.performance, 'สัดส่วนคะแนน', perfChartObj, (chart) => perfChartObj = chart);
+
+            // อัปเดตข้อมูลตาราง
+            const tbody = document.querySelector('#empTable tbody');
+            tbody.innerHTML = '';
+            data.table.forEach(emp => {
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${emp.EmpID || ''}</td>
+                        <td>${emp.Employee_Name || ''}</td>
+                        <td>${emp.Position || ''}</td>
+                        <td>${emp.Department || ''}</td>
+                        <td><span class="badge ${emp.EmploymentStatus === 'Active' ? 'bg-success' : 'bg-secondary'}">${emp.EmploymentStatus || ''}</span></td>
+                        <td>$${emp.PayRate || 0}</td>
+                        <td>${emp.PerformanceScore || ''}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        function renderChart(canvasId, type, chartData, label, chartInstance, setChart) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            if (chartInstance) chartInstance.destroy();
+
+            const newChart = new Chart(ctx, {
+                type: type,
+                data: {
+                    labels: Object.keys(chartData),
+                    datasets: [{
+                        label: label,
+                        data: Object.values(chartData),
+                        backgroundColor: ['#0d6efd', '#198754', '#ffc107', '#dc3545', '#0dcaf0', '#6c757d']
+                    }]
+                },
+                options: { responsive: true }
+            });
+            setChart(newChart);
+        }
+    </script>
+</body>
+</html>
